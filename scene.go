@@ -1,4 +1,5 @@
 // Copyright 2017 Google Inc. All rights reserved.
+// Copyright 2017 Ben McClelland
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -23,28 +24,30 @@ import (
 )
 
 type scene struct {
-	bg    *sdl.Texture
-	bird  *bird
-	pipes *pipes
+	r      *sdl.Renderer
+	bg     *sdl.Texture
+	ship   *ship
+	aliens *aliens
+	blast  *blast
 }
 
 func newScene(r *sdl.Renderer) (*scene, error) {
-	bg, err := img.LoadTexture(r, "res/imgs/background.png")
+	bg, err := img.LoadTexture(r, "res/imgs/moon.png")
 	if err != nil {
 		return nil, fmt.Errorf("could not load background image: %v", err)
 	}
 
-	b, err := newBird(r)
+	s, err := newShip(r)
 	if err != nil {
 		return nil, err
 	}
 
-	ps, err := newPipes(r)
+	as, err := newAliens(r)
 	if err != nil {
 		return nil, err
 	}
 
-	return &scene{bg: bg, bird: b, pipes: ps}, nil
+	return &scene{r: r, bg: bg, ship: s, aliens: as}, nil
 }
 
 func (s *scene) run(events <-chan sdl.Event, r *sdl.Renderer) <-chan error {
@@ -62,9 +65,7 @@ func (s *scene) run(events <-chan sdl.Event, r *sdl.Renderer) <-chan error {
 			case <-tick:
 				s.update()
 
-				if s.bird.isDead() {
-					drawTitle(r, "Game Over")
-					time.Sleep(time.Second)
+				if s.ship.isDead() {
 					s.restart()
 				}
 
@@ -83,8 +84,24 @@ func (s *scene) handleEvent(event sdl.Event) bool {
 	case *sdl.QuitEvent:
 		return true
 	case *sdl.MouseButtonEvent:
-		s.bird.jump()
-	case *sdl.MouseMotionEvent, *sdl.WindowEvent, *sdl.TouchFingerEvent, *sdl.CommonEvent:
+		s.fire()
+	case *sdl.KeyDownEvent:
+		switch event.(*sdl.KeyDownEvent).Keysym.Sym {
+		case sdl.GetKeyFromName("Space"):
+			s.fire()
+		case sdl.GetKeyFromName("Escape"):
+			return true
+		case sdl.GetKeyFromName("Left"):
+			s.ship.left()
+		case sdl.GetKeyFromName("Right"):
+			s.ship.right()
+		case sdl.GetKeyFromName("Up"):
+			s.ship.up()
+		case sdl.GetKeyFromName("Down"):
+			s.ship.down()
+
+		}
+	case *sdl.MouseMotionEvent, *sdl.WindowEvent, *sdl.TouchFingerEvent, *sdl.CommonEvent, *sdl.KeyUpEvent, *sdl.TextInputEvent:
 	default:
 		log.Printf("unknown event %T", event)
 	}
@@ -92,33 +109,71 @@ func (s *scene) handleEvent(event sdl.Event) bool {
 }
 
 func (s *scene) update() {
-	s.bird.update()
-	s.pipes.update()
-	s.pipes.touch(s.bird)
+	s.ship.update()
+	s.aliens.update()
+	if s.blast != nil {
+		s.blast = s.blast.update()
+	}
+	s.aliens.touch(s.ship)
+	if s.blast != nil {
+		s.aliens.splode(s.blast)
+	}
 }
 
 func (s *scene) restart() {
-	s.bird.restart()
-	s.pipes.restart()
+	s.ship.restart()
+	s.aliens.restart()
+}
+
+func (s *scene) fire() {
+	if s.blast != nil {
+		return
+	}
+	if s.ship.dead {
+		return
+	}
+	var err error
+	s.blast, err = newBlast(s.r, s.ship.x+shipHeight, s.ship.y+shipWidth/2)
+	if err != nil {
+		fmt.Println("new blast err", err)
+	}
 }
 
 func (s *scene) paint(r *sdl.Renderer) error {
 	r.Clear()
-	if err := r.Copy(s.bg, nil, nil); err != nil {
+	rect := &sdl.Rect{X: 0, Y: 0, W: 800, H: 600}
+	moonrect := &sdl.Rect{X: 100, Y: 0, W: 600, H: 600}
+	if err := r.DrawRect(rect); err != nil {
+		return fmt.Errorf("Could not draw background rect: %v", err)
+	}
+	if err := r.SetDrawColor(uint8(0), uint8(0), uint8(0), uint8(255)); err != nil {
+		return fmt.Errorf("Could not set draw color: %v", err)
+	}
+	if err := r.FillRect(rect); err != nil {
+		return fmt.Errorf("Could not fill rect: %v", err)
+	}
+	if err := r.CopyEx(s.bg, nil, moonrect, 0, nil, sdl.FLIP_NONE); err != nil {
 		return fmt.Errorf("could not copy background: %v", err)
 	}
-	if err := s.bird.paint(r); err != nil {
+	if err := s.ship.paint(r); err != nil {
 		return err
 	}
-	if err := s.pipes.paint(r); err != nil {
+	if err := s.aliens.paint(r); err != nil {
 		return err
+	}
+	if s.blast != nil {
+		if err := s.blast.paint(r); err != nil {
+			return err
+		}
 	}
 	r.Present()
 	return nil
 }
 
 func (s *scene) destroy() {
-	s.bg.Destroy()
-	s.bird.destroy()
-	s.pipes.destroy()
+	s.ship.destroy()
+	s.aliens.destroy()
+	if s.blast != nil {
+		s.blast.destroy()
+	}
 }
