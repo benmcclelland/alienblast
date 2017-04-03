@@ -3,6 +3,8 @@
 Alien Blaster uses a lot of boilerplate code from Francesc's Flappy Gopher
 JustForFunc demo.  You can find it [here](https://github.com/campoy/flappy-gopher).
 
+![screenshot](https://github.com/benmcclelland/alienblast/blob/master/alienblast.png)
+
 ## Installation
 
 You need to install first SDL2 and the SDL2 bindings for Go. To do so follow the instructions [here](https://github.com/veandco/go-sdl2).
